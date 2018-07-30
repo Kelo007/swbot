@@ -24,27 +24,28 @@ random.seed(time.time())
 d = u2.connect()
 
 class Screen:
-	def __init__(self):
-		self.__LAST_SCREEN = None
-		self.__KEEP_SCREEN = False
+	def __init__(self, sc):
+		self._LAST_SCREEN = None
+		self._KEEP_SCREEN = False
+		self.sc = sc
 	def update(self):
-		if self.__KEEP_SCREEN:
-			return self.__LAST_SCREEN
-		self.__LAST_SCREEN = d.screenshot(format='opencv')
-		return self.__LAST_SCREEN
+		if self._KEEP_SCREEN:
+			return self._LAST_SCREEN
+		self._LAST_SCREEN = self.sc()
+		return self._LAST_SCREEN
 	def get(self):
-		return self.__LAST_SCREEN
+		return self._LAST_SCREEN
 	def lock(self):
-		self.__KEEP_SCREEN = True
+		self._KEEP_SCREEN = True
 	def unlock(self):
-		self.__KEEP_SCREEN = False
+		self._KEEP_SCREEN = False
 	def __enter__(self):
 		self.update()
-		self.__KEEP_SCREEN = True
+		self._KEEP_SCREEN = True
 	def __exit__(self, _type, _value, _trace):
-		self.__KEEP_SCREEN = False
+		self._KEEP_SCREEN = False
 
-screen = Screen()
+screen = Screen(lambda: d.screenshot(format='opencv'))
 
 def click(x, y):
 	if setting.LOCK_CLICK:
@@ -141,10 +142,10 @@ class Basic_Battle:
 		with screen:
 			if MAIN_REGION.exist(R(START_BATTLE)):
 				event = 'START_BATTLE'
-			elif MAIN_REGION.exist(R(MANUAL_ICON), threshold=0.8):
+			elif MAIN_REGION.exist(R(MANUAL_ICON), threshold=0.77):
 				event = 'IN_BATTLE'
 				env['auto'] = False
-			elif MAIN_REGION.exist(R(AUTO_ICON), threshold=0.8):
+			elif MAIN_REGION.exist(R(AUTO_ICON), threshold=0.77):
 				event = 'IN_BATTLE'
 				env['auto'] = True
 			elif MAIN_REGION.exist(R(BATTLE_END)):
@@ -202,6 +203,8 @@ class Basic_Battle:
 			self._handle_reward(event, env)	
 		elif event == 'START_AGAIN':
 			START_AGAIN_REGION.random_click()
+		if self.max_runtimes > 0 and self.current_runtimes >= self.max_runtimes:
+			return Basic_Battle.App_Status.STOP
 	def run(self):
 		AS = Basic_Battle.App_Status
 		wt = self.wait_time
