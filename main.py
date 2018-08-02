@@ -2,6 +2,7 @@
 import random
 import time
 import logging
+import argparse
 
 import cv2
 import uiautomator2 as u2
@@ -9,19 +10,23 @@ import uiautomator2 as u2
 import setting
 import utils
 
-def get_logger(name):
+def get_logger(name, level=logging.INFO):
 	logger = logging.getLogger(name)
-	logger.setLevel(logging.INFO)
-	ch = logging.StreamHandler()
-	ch.setLevel(logging.DEBUG)
-	formatter = logging.Formatter('%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
-	ch.setFormatter(formatter)
+	logger.setLevel(logging.DEBUG)
+	ch, fh = logging.StreamHandler(), logging.FileHandler("%s.log" % name)
+	ch.setLevel(level)
+	fh.setLevel(logging.DEBUG)
+	ch.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s: %(message)s'))
+	fh.setFormatter(logging.Formatter('%(asctime)s - %(filename)s,%(module)s,%(funcName)s[line:%(lineno)d] - %(levelname)s: %(message)s'))
 	logger.addHandler(ch)
+	logger.addHandler(fh)
 	return logger
 
-log = get_logger('swbot')
 random.seed(time.time())
-d = u2.connect()
+# log = get_logger('swbot')
+# d = u2.connect()
+log = None
+d = None
 
 class Screen:
 	def __init__(self, sc):
@@ -49,7 +54,7 @@ screen = Screen(lambda: d.screenshot(format='opencv'))
 
 def click(x, y):
 	if setting.LOCK_CLICK:
-		log.info('will click %s.', (x, y))
+		log.debug('will click %s.', (x, y))
 		img = screen.update().copy()
 		utils.mark_point(img, (x, y))
 		utils.show(img)
@@ -107,7 +112,7 @@ START_AGAIN = 'START_AGAIN.png'
 GIANT_UNDERGROUND = 'GIANT_UNDERGROUND.png'
 GIANT_BOSS = 'GIANT_BOSS.png'
 YELLOW = 'YELLOW.png'
-MAIN_REGION = Region((0, 0), (d.info['displayWidth'], d.info['displayHeight']))
+MAIN_REGION = Region((0, 0), (1280, 720))
 BATTLE_NAV_REGION = Region((0, 0), (1280, 50))
 START_REGION = Region((970, 460), (1190, 555))
 AUTO_REGION = Region((215, 655), (250, 690))
@@ -182,6 +187,9 @@ class Basic_Battle:
 			return app_status
 		if event == 'UNKNOWN':
 			return Basic_Battle.App_Status.UNKNOWN
+		if event in ('START_BATTLE', 'START_AGAIN'):
+			if self.max_runtimes >= 0 and self.current_runtimes >= self.max_runtimes:
+				return Basic_Battle.App_Status.STOP
 		if event == 'START_BATTLE':
 			START_REGION.random_click()
 		elif event == 'IN_BATTLE':
@@ -203,8 +211,7 @@ class Basic_Battle:
 			self._handle_reward(event, env)	
 		elif event == 'START_AGAIN':
 			START_AGAIN_REGION.random_click()
-		if self.max_runtimes > 0 and self.current_runtimes >= self.max_runtimes:
-			return Basic_Battle.App_Status.STOP
+		return app_status
 	def run(self):
 		AS = Basic_Battle.App_Status
 		wt = self.wait_time
@@ -213,7 +220,7 @@ class Basic_Battle:
 			timer = utils.Timer()
 			current_app_status = self.single_run()
 			log.info('Single run was finished, cost around %d ms.', timer.point())
-			log.info('Current run times: %d, win wimes: %d.', self.current_runtimes, self.current_winwimes)
+			log.info('Max run times: %.0f, current run times: %d, win wimes: %d.', self.max_runtimes if self.max_runtimes >= 0 else float('inf'), self.current_runtimes, self.current_winwimes)
 			self._report()
 			if current_app_status == AS.STOP:
 				break
@@ -263,6 +270,7 @@ class Underground_Battle(Basic_Battle):
 		else:
 			self.get_other_reward_times += 1
 			find_region(R(CLOSE_BUTTON)).random_click()
+			write_tmp_images(prefix='o_reward')
 		screen.unlock()
 	def _single_run(self, app_status, event, env):
 		if event == 'IN_BATTLE' and self.target_boss:
@@ -272,8 +280,56 @@ class Underground_Battle(Basic_Battle):
 					self.targeted_boss = True
 			else:
 				self.targeted_boss = False
+class Food_Battle(Basic_Battle):
+	def __init__(self, **args):
+		super().__init__(**args)
+	def should_keep_runes(self):
+		screen.update()
+		identity = False
+		if not identity:
+			write_tmp_images(prefix='rune')
+			return True
+		return True
+	def _handle_reward(self, event, env):
+		screen.lock()
+		if env['type'] == 'RUNE':
+			if self.should_keep_runes():
+				find_region(R(GET_RUNE)).random_click()
+			else:
+				pass
+		else:
+			find_region(R(CLOSE_BUTTON)).random_click()
+			write_tmp_images(prefix='o_reward')
+		screen.unlock()
+
+def auto_select_mode():
+	return 'underground' if MAIN_REGION.exist(R(UNDERGROUND)) else 'food'
 
 if __name__ == '__main__':
-	Underground_Battle(**setting.UNDERGROUND_SETTINGS).run()
-	# tmp_img = MAIN_REGION.get()
-	# cv2.imwrite('img.png', tmp_img)
+	parser = argparse.ArgumentParser(prog='swbot')
+	parser.add_argument('mode', nargs='?', default='auto', choices=['auto', 'food', 'underground'])
+	parser.add_argument('--runtimes', '-r', type=int, help='max runtimes')
+	parser.add_argument('--filltimes', '-f', type=int, help='max filltimes')
+	parser.add_argument('--waitime', '-w', type=int, help='wait time(ms)')
+	parser.add_argument('--verbose', '-v', action='store_true')
+	parsered_args = parser.parse_args()
+	d = u2.connect()
+	log = get_logger('swbot', logging.DEBUG) if parsered_args.verbose else get_logger('swbot', logging.INFO)
+	mode = auto_select_mode() if parsered_args.mode == 'auto' else parsered_args.mode
+	settings = setting.BASIC_SETTING.copy()
+	if mode == 'food':
+		settings.update(setting.FOOD_SETTING)
+		battle = Food_Battle
+	elif mode == 'underground':
+		settings.update(setting.UNDERGROUND_SETTING)
+		battle = Underground_Battle
+	if parsered_args.runtimes is not None:
+		settings.update(max_runtimes=parsered_args.runtimes)
+	if parsered_args.filltimes is not None:
+		settings.update(max_filltimes=parsered_args.filltimes)
+	if parsered_args.waitime is not None:
+		settings.update(wait_time=parsered_args.waitime)
+	log.info("Mode: %s, setting: %s", mode, settings)
+	battle(**settings).run()
+else:
+	log = get_logger('swbot', logging.DEBUG)

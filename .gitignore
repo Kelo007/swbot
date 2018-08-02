@@ -108,6 +108,7 @@ tmp/
 tempCodeRunnerFile.py
 *.txt
 capture.py
-test.py
+test*.py
 .DS_Store
 .vscode/
+swbot-run.sh

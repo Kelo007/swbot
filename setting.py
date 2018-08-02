@@ -2,6 +2,12 @@
 DEBUG = True
 LOCK_CLICK = False
 
-UNDERGROUND_SETTINGS = {
+BASIC_SETTING = {
+
+}
+UNDERGROUND_SETTING = {
 	'target_boss': True,
+}
+
+FOOD_SETTING = {
 }
