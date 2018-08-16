@@ -112,3 +112,4 @@ test*.py
 .DS_Store
 .vscode/
 swbot-run.sh
+bak*
