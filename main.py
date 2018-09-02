@@ -59,7 +59,8 @@ def click(x, y):
 		utils.mark_point(img, (x, y))
 		utils.show(img)
 		return
-	d.long_click(x, y, random.uniform(0.5, 2.5))
+	# d.click(x, y)
+	d.long_click(x, y, random.uniform(0.2, 0.5))
 
 class Region:
 	def __init__(self, l, r):
@@ -109,9 +110,14 @@ GET_RUNE = 'GET_RUNE.png'
 GET_OTHER_REWARD = 'GET_OTHER_REWARD.png'
 CLOSE_BUTTON = 'CLOSE_BUTTON.png'
 START_AGAIN = 'START_AGAIN.png'
+START_AGAIN2 = 'START_AGAIN2.png'
 GIANT_UNDERGROUND = 'GIANT_UNDERGROUND.png'
 GIANT_BOSS = 'GIANT_BOSS.png'
 YELLOW = 'YELLOW.png'
+NO_ENERGY = 'NO_ENERGY.png'
+ENERGY_TEXT = 'ENERGY_TEXT.png'
+CONFIRM_PURCHASE = 'CONFIRM_PURCHASE.png'
+CONFIRM_PURCHASE_END = 'CONFIRM_PURCHASE_END.png'
 MAIN_REGION = Region((0, 0), (1280, 720))
 BATTLE_NAV_REGION = Region((0, 0), (1280, 50))
 START_REGION = Region((970, 460), (1190, 555))
@@ -120,15 +126,21 @@ CENTER_REGION = Region((400, 200), (900, 500))
 START_AGAIN_REGION = Region((230, 360), (580, 425))
 REVIVE_REGION = Region((710, 440), (950, 500))
 YELLOW_REGION = Region((30, 10), (200, 50))
-BOSS_REGION = Region((600, 255), (670, 380))
+BOSS_REGION = Region((765, 158), (812, 221))
 
+
+def wait_until(wait_time, region, template, **arg):
+	while True:
+		if region.exist(template, **arg):
+			return True
+		sleep(wait_time)
 class Basic_Battle:
 	class App_Status:
 		FINE = 0
 		UNKNOWN = 1
 		STOP = 2
 		CONTINUE = 3
-	def __init__(self, max_runtimes=-1, max_filltimes=0, wait_time=1500):
+	def __init__(self, max_runtimes=-1, max_filltimes=0, wait_time=1000):
 		self.max_runtimes = max_runtimes
 		self.max_filltimes = max_filltimes
 		self.wait_time = wait_time
@@ -145,12 +157,10 @@ class Basic_Battle:
 	def get_status(self):
 		event, env = 'UNKNOWN', {}
 		with screen:
-			if MAIN_REGION.exist(R(START_BATTLE)):
-				event = 'START_BATTLE'
-			elif MAIN_REGION.exist(R(MANUAL_ICON), threshold=0.77):
+			if MAIN_REGION.exist(R(MANUAL_ICON), threshold=0.75):
 				event = 'IN_BATTLE'
 				env['auto'] = False
-			elif MAIN_REGION.exist(R(AUTO_ICON), threshold=0.77):
+			elif MAIN_REGION.exist(R(AUTO_ICON), threshold=0.75):
 				event = 'IN_BATTLE'
 				env['auto'] = True
 			elif MAIN_REGION.exist(R(BATTLE_END)):
@@ -167,6 +177,12 @@ class Basic_Battle:
 				env['type'] = 'GET_OTHER_REWARD'
 			elif MAIN_REGION.exist(R(START_AGAIN)):
 				event = 'START_AGAIN'
+			elif MAIN_REGION.exist(R(START_AGAIN2), threshold=0.8):
+				event = 'START_AGAIN'
+			elif MAIN_REGION.exist(R(START_BATTLE)):
+				event = 'START_BATTLE'
+			elif MAIN_REGION.exist(R(NO_ENERGY)):
+				event = 'NO_ENERGY'
 			event, env = self._get_status(event, env)
 		return event, env
 	def _single_run(self, app_status, event, env):
@@ -177,6 +193,22 @@ class Basic_Battle:
 		screen.unlock()
 	def _report(self):
 		pass
+	def handle_energy(self):
+		open_store_button = Region((440, 420), (590, 470))
+		open_store_button.random_click()
+		wait_until(self.wait_time, MAIN_REGION, R(ENERGY_TEXT))
+		open_fill_energy = Region((430, 260), (600, 450))
+		open_fill_energy.random_click()
+		wait_until(self.wait_time, MAIN_REGION, R(CONFIRM_PURCHASE))
+		confirm_button = Region((450, 420), (600, 460))
+		confirm_button.random_click()
+		wait_until(self.wait_time, MAIN_REGION, R(CONFIRM_PURCHASE_END))
+		ok_button = Region((570, 410), (700, 460))
+		ok_button.random_click()
+		wait_until(self.wait_time, MAIN_REGION, R(ENERGY_TEXT))
+		close_button = Region((1180, 60), (1220, 95))
+		close_button.random_click()
+
 	def single_run(self):
 		AS = Basic_Battle.App_Status
 		app_status = AS.FINE
@@ -211,6 +243,16 @@ class Basic_Battle:
 			self._handle_reward(event, env)	
 		elif event == 'START_AGAIN':
 			START_AGAIN_REGION.random_click()
+		elif event == 'NO_ENERGY':
+			close_button = Region((930, 180), (970, 220))
+			log.info("Current fill times %d", self.current_filltimes)
+			if self.current_filltimes >= self.max_filltimes:
+				log.info("Up to max filltimes. Sleep one minutes.")
+				close_button.random_click()
+				sleep(1000 * 60)
+			else:
+				self.handle_energy()
+				self.current_filltimes += 1
 		return app_status
 	def run(self):
 		AS = Basic_Battle.App_Status
@@ -254,7 +296,7 @@ class Underground_Battle(Basic_Battle):
 		screen.update()
 		identity = False
 		if not identity:
-			write_tmp_images(prefix='rune')
+			# write_tmp_images(prefix='rune')
 			return True
 		return True
 	def _report(self):
@@ -270,7 +312,7 @@ class Underground_Battle(Basic_Battle):
 		else:
 			self.get_other_reward_times += 1
 			find_region(R(CLOSE_BUTTON)).random_click()
-			write_tmp_images(prefix='o_reward')
+			# write_tmp_images(prefix='o_reward')
 		screen.unlock()
 	def _single_run(self, app_status, event, env):
 		if event == 'IN_BATTLE' and self.target_boss:
@@ -287,7 +329,7 @@ class Food_Battle(Basic_Battle):
 		screen.update()
 		identity = False
 		if not identity:
-			write_tmp_images(prefix='rune')
+			# write_tmp_images(prefix='rune')
 			return True
 		return True
 	def _handle_reward(self, event, env):
@@ -299,7 +341,7 @@ class Food_Battle(Basic_Battle):
 				pass
 		else:
 			find_region(R(CLOSE_BUTTON)).random_click()
-			write_tmp_images(prefix='o_reward')
+			# write_tmp_images(prefix='o_reward')
 		screen.unlock()
 
 def auto_select_mode():
